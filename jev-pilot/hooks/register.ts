@@ -22,7 +22,8 @@ import {
     gateBash,
     gateEdit,
     inScopeQuestion,
-    lowerEffort,
+    adjustEffort,
+    effortKeepsCache,
     lowerModel,
     nextActionQuestion,
     pickCandidate,
@@ -354,7 +355,9 @@ export const register: Register = (on, options) => {
         // Effort lowered at step 0 holds for every step of the turn.
         const routed = (step: typeof e) => {
             if (m !== "active" || !turn.route) return step;
-            const effort = lowerEffort(step.effort, turn.route.effort);
+            const effort = effortKeepsCache(step.model)
+                ? adjustEffort(step.effort, turn.route.effort)
+                : undefined;
             const model = lowerModel(step.model, turn.route.model);
             return effort || model
                 ? { ...step, ...(effort ? { effort } : {}), ...(model ? { model } : {}) }
@@ -414,13 +417,16 @@ export const register: Register = (on, options) => {
                 difficulty,
                 routing === "model" ? "model" : "effort",
             );
-            const effort = lowerEffort(e.effort, turn.route?.effort);
+            const effort = effortKeepsCache(e.model)
+                ? adjustEffort(e.effort, turn.route?.effort)
+                : undefined;
             const model = lowerModel(e.model, turn.route?.model);
-            const lowered = Boolean(effort || model);
+            const raised = effort === "high";
+            const lowered = Boolean((effort && !raised) || model);
             await record($, {
                 kind: "route",
-                applied: m === "active" && lowered,
-                text: `difficulty ${(difficulty?.score ?? 0).toFixed(2)} → ${lowered ? `${model ?? e.model}, effort ${effort ?? e.effort}` : "no change"}`,
+                applied: m === "active" && (lowered || raised),
+                text: `difficulty ${(difficulty?.score ?? 0).toFixed(2)} → ${lowered || raised ? `${model ?? e.model}, effort ${effort ?? e.effort}` : effortKeepsCache(e.model) ? "no change" : `no change (effort is left alone on ${e.model})`}`,
                 ms: r.ms,
                 turnId: e.turnId,
                 data: {
@@ -429,6 +435,7 @@ export const register: Register = (on, options) => {
                     effort,
                     model,
                     lowered,
+                    raised,
                 },
             });
         }

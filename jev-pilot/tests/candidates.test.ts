@@ -99,3 +99,28 @@ test('a step matches only when Jev’s one action would replace all of it', () =
   expect(coversStep([{ tool: 'Bash', input: { command: 'ls && cat package.json && npm test' } }], jev)).toBe(false)
   expect(coversStep([{ tool: 'Bash', input: { command: 'npm test' } }, { tool: 'Read', input: { file_path: '/a' } }], jev)).toBe(false)
 })
+
+import { adjustEffort, effortKeepsCache, route } from '../hooks/policy'
+
+const rated = (score: number, confidence = 0.9) => ({ type: 'score' as const, score, probabilities: {}, confidence })
+
+test('effort: trivial goes low, routine medium, big jobs high', () => {
+  expect(route(rated(0.95), 'effort')?.effort).toBe('low')
+  expect(route(rated(1.5), 'effort')?.effort).toBe('medium')
+  expect(route(rated(2.9), 'effort')?.effort).toBe('high')
+  expect(route(rated(2.9, 0.3), 'effort')).toBeUndefined()
+})
+
+test('effort is raised only to high, and a big job never lowers xhigh', () => {
+  expect(adjustEffort('high', 'low')).toBe('low')
+  expect(adjustEffort('low', 'medium')).toBeUndefined()
+  expect(adjustEffort('low', 'high')).toBe('high')
+  expect(adjustEffort('medium', 'high')).toBe('high')
+  expect(adjustEffort('xhigh', 'high')).toBeUndefined()
+})
+
+test('effort is only changed on models where that keeps the cache', () => {
+  expect(effortKeepsCache('claude-opus-5-5')).toBe(true)
+  expect(effortKeepsCache('claude-sonnet-5-5')).toBe(true)
+  expect(effortKeepsCache('claude-opus-5')).toBe(false)
+})

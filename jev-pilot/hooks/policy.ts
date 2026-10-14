@@ -97,19 +97,38 @@ const EFFORT_ORDER: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export type Route = { level: number; effort?: Effort; model?: string }
 
-/** Only ever lowers: trivial → low effort (Haiku in model mode), routine → medium (Sonnet). */
+// Cut points on Jev's 0–3 difficulty score. Tuned on effortless's 75
+// hand-labelled prompts: 57% of picks acceptable with low < 0.75 and lowering
+// only, 91% with these cuts and raising big jobs to high.
+export const LOW_BELOW = 1.0
+export const HIGH_FROM = 1.8
+
+/** Trivial → low (Haiku in model mode), routine → medium (Sonnet), big → high. */
 export function route(answer: ScoreAnswer | undefined, mode: 'effort' | 'model'): Route | undefined {
   if (!answer || answer.confidence < 0.5) return undefined
   const level = answer.score
-  if (level < 0.75) return { level, effort: 'low', ...(mode === 'model' ? { model: 'claude-haiku-5-5' } : {}) }
-  if (level < 1.5) return { level, effort: 'medium', ...(mode === 'model' ? { model: 'claude-sonnet-5-5' } : {}) }
-  return undefined
+  if (level < LOW_BELOW) return { level, effort: 'low', ...(mode === 'model' ? { model: 'claude-haiku-5-5' } : {}) }
+  if (level < HIGH_FROM) return { level, effort: 'medium', ...(mode === 'model' ? { model: 'claude-sonnet-5-5' } : {}) }
+  return { level, effort: 'high' }
 }
 
-export function lowerEffort(current: unknown, target: Effort | undefined): Effort | undefined {
+/**
+ * Models where a change of effort keeps the prompt cache (Opus and Sonnet 5.5).
+ * On others it rewrites the cache, which costs more than lower effort saves.
+ */
+export const effortKeepsCache = (model: string) => /(opus|sonnet)-5-5/.test(model)
+
+/**
+ * The effort to send instead of `current`, or nothing: low and medium only
+ * lower it; high only raises it, from low or medium, so a big job never runs
+ * below high and a person's xhigh or max is never lowered on a big job.
+ */
+export function adjustEffort(current: unknown, target: Effort | undefined): Effort | undefined {
   if (!target || typeof current !== 'string') return undefined
   const ci = EFFORT_ORDER.indexOf(current as Effort)
   const ti = EFFORT_ORDER.indexOf(target)
+  if (ci < 0) return undefined
+  if (target === 'high') return ci < ti ? target : undefined
   return ci > ti ? target : undefined
 }
 

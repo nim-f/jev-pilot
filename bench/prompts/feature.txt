@@ -1,0 +1,6 @@
+In this todo app:
+1. Run the tests first to confirm they pass.
+2. Add a priority (low, normal, high; default normal) to todos: a select next to the due date when adding, a small colored dot on each todo (high red, normal grey, low blue), and high-priority todos listed first within each filter.
+3. Add tests for the new logic in test/todo.test.js.
+4. Run the tests again.
+5. Run git status and git diff --stat, then summarize what changed.

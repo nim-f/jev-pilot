@@ -1,0 +1,3 @@
+rename the "Clear done" button to "Clear completed"
+---
+thanks

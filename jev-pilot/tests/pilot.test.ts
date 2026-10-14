@@ -421,3 +421,13 @@ test('Effort routing sees the reply a short follow-up answers', async ($, on) =>
   expect(state.request).toBe('yes')
   expect(state.previous_reply).toBe('Here is the plan: 1. … Want me to build it?')
 })
+
+test('A big job asked at medium effort runs at high; on an older model effort is left alone', async ($, on) => {
+  const seen: { effort?: string }[] = []
+  const hard = { type: 'score', score: 2.9, probabilities: {}, confidence: 0.95 }
+  setup(on, { messages: [user('migrate the whole app to TypeScript')], jev: () => ({ difficulty: hard }) })
+  claudeBeneath(on, seen as unknown[])
+  await drain($.turn.step({ ...step, effort: 'medium' as const }))
+  await drain($.turn.step({ ...step, turnId: 't2', model: 'claude-opus-5', effort: 'medium' as const }))
+  expect(seen.map(s => s.effort)).toEqual(['high', 'medium'])
+})
