@@ -1,6 +1,6 @@
 {
   "name": "jev-pilot",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lets TypeSafe Jev take routine steps, route effort, gate risky calls and check that work is done.",
   "userConfig": {
     "mode": {
@@ -89,6 +89,24 @@
       "type": "boolean",
       "title": "Answer simple prompts without Claude",
       "description": "When a prompt only needs one read-only action Jev takes (run the tests, git status, read a file), a small model reports the result and the main Claude model is skipped.",
+      "default": true
+    },
+    "classify": {
+      "type": "boolean",
+      "title": "Classify prompts",
+      "description": "Classify each prompt and add a hint Claude reads when a skill fits or the change needs a plan first.",
+      "default": true
+    },
+    "agentTypes": {
+      "type": "boolean",
+      "title": "Pick subagent types",
+      "description": "Let Jev switch a general-purpose subagent to a specialised type when it is confident.",
+      "default": true
+    },
+    "compaction": {
+      "type": "boolean",
+      "title": "Guide compaction",
+      "description": "Before a compaction, tell the summarizer which earlier tool results to keep in detail.",
       "default": true
     }
   }

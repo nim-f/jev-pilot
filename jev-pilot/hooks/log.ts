@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 // Every Jev decision, agreeing or not, goes to a capped log in $.store so
 // shadow runs can be compared with what Claude did and thresholds tuned.
-export type Kind = 'take' | 'compare' | 'route' | 'gate' | 'done' | 'outcome' | 'turn' | 'bypass' | 'error'
+export type Kind = 'take' | 'compare' | 'route' | 'gate' | 'done' | 'outcome' | 'turn' | 'bypass' | 'classify' | 'agent' | 'compact' | 'error'
 
 export type Entry = {
   at: number

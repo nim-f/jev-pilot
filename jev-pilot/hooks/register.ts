@@ -8,6 +8,10 @@ import type { Question } from "./jev";
 import { clearLog, readLog, record, recentDecisions, stats } from "./log";
 import { buildReport } from "./report";
 import { registerView } from "./view";
+import { currentMode, MODES } from "./mode";
+import { registerPromptClassifier } from "./prompt";
+import { registerAgentTypes } from "./agents";
+import { registerCompaction } from "./compact";
 import { summarizeResult, SUMMARY_MODEL } from "./summarize";
 import {
     bestAction,
@@ -27,8 +31,6 @@ import {
 } from "./policy";
 import type { GateThresholds, Route } from "./policy";
 
-type Mode = "active" | "shadow" | "off";
-const MODES: readonly Mode[] = ["active", "shadow", "off"];
 const MAX_TAKES_PER_TURN = 3;
 const GATED = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
 
@@ -61,13 +63,6 @@ async function blockSkill($: EngineInterface, name: string) {
         await $.store.set(SKILL_BLOCKLIST_KEY, [...list, name]);
 }
 
-async function currentMode(
-    $: EngineInterface,
-    configured: unknown,
-): Promise<Mode> {
-    const m = (await $.store.get("mode")) ?? configured;
-    return MODES.includes(m as Mode) ? (m as Mode) : "active";
-}
 
 export const register: Register = (on, options) => {
     const routing =
@@ -95,6 +90,9 @@ export const register: Register = (on, options) => {
     const doneThreshold = threshold("doneThreshold", 0.15);
 
     registerView(on);
+    registerPromptClassifier(on, options, takeThreshold);
+    registerAgentTypes(on, options);
+    registerCompaction(on, options);
 
     const turns = new Map<
         string,

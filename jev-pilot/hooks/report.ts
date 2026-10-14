@@ -130,6 +130,23 @@ export function buildReport(log: readonly Entry[], threshold: number, mode = '')
   out.push(`| Effort routing | ${routes.length} turns | avg difficulty ${scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2) : '—'} (0 trivial … 3 hard) · ${lowered.length} lowered, ${lowered.filter(e => e.applied).length} applied |`)
   out.push(`| Gate | ${gates.length} calls | ${by('allow').length} allow · ${by('ask').length} ask · ${by('deny').length} deny |`)
   out.push(`| Done check | ${dones.length} stops | ${continued.length} unfinished, ${continued.filter(e => e.applied).length} sent back |`)
+  const classified = of('classify')
+  if (classified.length) {
+    const kinds = new Map<string, number>()
+    for (const e of classified) kinds.set(str(e.data?.kind) ?? '?', (kinds.get(str(e.data?.kind) ?? '?') ?? 0) + 1)
+    const hinted = classified.filter(e => (num(e.data?.hints) ?? 0) > 0)
+    out.push(`| Prompt classifier | ${classified.length} prompts | ${[...kinds].map(([k, n]) => `${n} ${k}`).join(' · ')} · ${hinted.length} hinted, ${hinted.filter(e => e.applied).length} applied |`)
+  }
+  const agents = of('agent')
+  if (agents.length) {
+    const switched = agents.filter(e => e.data?.switched === true)
+    out.push(`| Subagent type | ${agents.length} spawns | ${agents.filter(e => e.data?.agree === true).length} agreed with Claude · ${switched.length} switched, ${switched.filter(e => e.applied).length} applied |`)
+  }
+  const compacts = of('compact')
+  if (compacts.length) {
+    const sum = (k: string) => compacts.reduce((a, e) => a + (num(e.data?.[k]) ?? 0), 0)
+    out.push(`| Compaction | ${compacts.length} runs | ${sum('items')} results scored · ${sum('keep')} kept in detail · ${sum('drop')} marked droppable |`)
+  }
 
   const flagged = [...by('ask'), ...by('deny')].slice(-5)
   if (flagged.length) {

@@ -15,7 +15,7 @@ const MAX_SEARCHES = 3
 const SAFE_SCRIPT = /^(test|tests|lint|build|typecheck|type-check|check|test:[\w:-]+|lint:[\w:-]+)$/
 // Built-in CLI commands the command list can report as user commands but the
 // Skill tool refuses (`/diff` did). Failed skills are also blocklisted at run time.
-const BUILTIN_COMMANDS = new Set(
+export const BUILTIN_COMMANDS = new Set(
   ('add-dir agents bug clear compact config context cost diff doctor exit export help hooks ide init ' +
     'install-github-app login logout mcp memory model permissions plugin pr-comments release-notes resume ' +
     'review rewind status statusline terminal-setup theme upgrade usage vim').split(' '),
