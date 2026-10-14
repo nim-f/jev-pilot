@@ -2,6 +2,9 @@
   "name": "jev-pilot",
   "version": "0.5.0",
   "description": "Lets TypeSafe Jev take routine steps, route effort, gate risky calls and check that work is done.",
+  "author": {
+    "name": "Code and Bird"
+  },
   "userConfig": {
     "mode": {
       "type": "string",

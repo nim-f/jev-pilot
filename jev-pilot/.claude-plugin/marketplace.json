@@ -1,0 +1,5 @@
+{
+  "name": "jev-pilot-local",
+  "owner": { "name": "Code and Bird" },
+  "plugins": [{ "name": "jev-pilot", "source": "./" }]
+}
