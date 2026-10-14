@@ -50,6 +50,12 @@ export function quotedTerms(text: string): string[] {
   return [...seen].slice(0, MAX_SEARCHES)
 }
 
+// Never offered for reading: Claude Code's temp and task folders (a subagent's
+// `.output` file is its whole transcript and floods the context), system temp
+// dirs, and Claude's own config tree.
+const UNSAFE_PATH = /(^|\/)(tmp|private\/tmp|private\/var\/folders|var\/folders)\/|\/\.claude\/|\/tasks\/[^/]+\.output$|\.output$|\.jsonl$/
+export const isSafeToOffer = (file: string) => !UNSAFE_PATH.test(file)
+
 const absolute = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd}/${p.replace(/^\.\//, '')}`)
 
 export function sameCall(a: { tool: string; input: Record<string, unknown> }, b: { tool: string; input: Record<string, unknown> }) {
@@ -87,7 +93,7 @@ export async function buildCandidates(
     if (reads >= MAX_READS) break
     if (p.startsWith('~')) continue
     const file = absolute(cwd, p)
-    if (alreadyRead.has(file)) continue
+    if (alreadyRead.has(file) || !isSafeToOffer(file)) continue
     const stat = await $.fs.stat(file).catch(() => undefined)
     if (stat?.kind !== 'file' || stat.size > 2_000_000) continue
     out.push({ key: `read ${p}`, description: `Read the file ${p}`, tool: 'Read', input: { file_path: file } })

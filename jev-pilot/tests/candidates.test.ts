@@ -33,3 +33,12 @@ test('times show HH:MM, with the date when not on the latest entry’s day', () 
   expect(when(new Date(2026, 9, 14, 9, 5).getTime(), latest)).toBe('09:05')
   expect(when(new Date(2026, 9, 13, 23, 59).getTime(), latest)).toBe('10-13 23:59')
 })
+
+import { isSafeToOffer } from '../hooks/candidates'
+
+test('temp, task-output and Claude config paths are never offered for reading', () => {
+  expect(isSafeToOffer('/private/tmp/claude-503/-Users-x/abc/tasks/a889.output')).toBe(false)
+  expect(isSafeToOffer('/tmp/jev-gate-test/notes.txt')).toBe(false)
+  expect(isSafeToOffer('/Users/nimf/.claude/settings.json')).toBe(false)
+  expect(isSafeToOffer('/Users/nimf/Work/jev-demo/todo-app/todo.js')).toBe(true)
+})

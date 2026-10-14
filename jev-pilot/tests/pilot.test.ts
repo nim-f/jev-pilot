@@ -366,3 +366,16 @@ test('Built-in commands are never offered as skills, and a skill that fails is b
   await drain($.turn.step({ ...step, turnId: 't2' }))
   expect(offered[1] ?? []).not.toContain('skill changelog')
 })
+
+test('The done check stays quiet while background work is running', async ($, on) => {
+  const { sent } = setup(on, { messages: [user('find every localStorage use with a subagent')], jev: () => ({ done: { type: 'noul', noul: 0.02 } }) })
+  on('classic.Stop', () => ({}))
+
+  const waiting = await $.classic.Stop({
+    stop_hook_active: false,
+    last_assistant_message: 'The subagent is running; I will report back.',
+    background_tasks: [{ id: 'a1', type: 'agent', status: 'running', description: 'Find localStorage reads/writes' }],
+  } as never)
+  expect(waiting.block).toBeUndefined()
+  expect(sent).toHaveLength(0)
+})

@@ -19,6 +19,17 @@ const KIND_LEVELS: Record<string, string> = {
 const SKILL_HINT = 0.6
 const PLAN_HINT = 0.85
 
+/** The end of the assistant's last reply, so short follow-ups are judged in context. */
+async function previousReply($: EngineInterface): Promise<string | undefined> {
+  const messages = await $.session.messages({}).catch(() => undefined)
+  if (!Array.isArray(messages)) return undefined
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!
+    if (m.role === 'assistant' && m.text.trim()) return m.text.length > 800 ? `…${m.text.slice(-800)}` : m.text
+  }
+  return undefined
+}
+
 async function skillOptions($: EngineInterface) {
   const commands = await $.command.list().catch(() => [])
   const blocked = new Set(((await $.store.get(SKILL_BLOCKLIST_KEY).catch(() => undefined)) as string[] | undefined) ?? [])
@@ -32,10 +43,15 @@ async function skillOptions($: EngineInterface) {
 
 export function promptQuestions(skills: Record<string, string | null> | undefined): Record<string, Question> {
   const questions: Record<string, Question> = {
-    kind: { type: 'choice', instructions: 'What kind of message is `request`, sent to an AI coding assistant?', criteria: KIND_LEVELS },
+    kind: {
+      type: 'choice',
+      instructions: "What kind of message is `request`, sent to an AI coding assistant? When `previous_reply` is present, `request` answers it: read a short follow-up like 'fix it' or 'yes' in that light.",
+      criteria: KIND_LEVELS,
+    },
     needs_plan: {
       type: 'noul',
-      instructions: 'Is `request` a large or ambiguous change (several files, design choices, unclear scope) that the assistant should plan and confirm before editing anything?',
+      instructions:
+        "Is `request` a large or ambiguous change (several files, design choices, unclear scope) that the assistant should plan and confirm before editing anything? When `previous_reply` is present, `request` refers to it: a follow-up approving or naming a change already described there is not ambiguous.",
       criteria: { true: 'Large or ambiguous: plan first', false: 'Small, clear, or not a change at all' },
     },
   }
@@ -60,7 +76,8 @@ export function registerPromptClassifier(on: On, options: PluginOptions, takeThr
     if (m === 'off') return next(e)
 
     const questions = promptQuestions(await skillOptions($))
-    const r = await askJev($, { request: clip(e.text, 3000) }, questions)
+    const previous = await previousReply($)
+    const r = await askJev($, { request: clip(e.text, 3000), ...(previous ? { previous_reply: previous } : {}) }, questions)
     if (!r.ok) return next(e)
     const kind = choice(r.answers, 'kind')
     const needsPlan = noul(r.answers, 'needs_plan')

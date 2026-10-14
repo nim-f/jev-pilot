@@ -94,3 +94,28 @@ test('session.compact passes the ranking to the summarizer', async ($, on) => {
   await $.session.compact({ trigger: 'manual', messages } as never)
   expect(instructions ?? '').toContain('Keep exact details (paths, errors, decisions, values) from: Bash step a.')
 })
+
+test('A short follow-up is classified with the previous reply as context', async ($, on) => {
+  const sentStates: Record<string, unknown>[] = []
+  mock.env(on, { TYPESAFE_API_KEY: 'test-key' })
+  mock.store(on, {})
+  mock.clock(on)
+  on('session.cwd', () => ({ value: CWD }))
+  on('session.messages', () => ({ value: [{ role: 'assistant' as const, text: 'The done check could skip while background tasks run. Want me to fix that?', toolUses: [] }] }))
+  on('ui.status', () => ({ value: undefined }))
+  on('command.list', () => ({ value: [] }))
+  on('http.fetch', ($, e) => {
+    sentStates.push((JSON.parse(e.init?.body ?? '{}') as { state: Record<string, unknown> }).state)
+    return {
+      value: {
+        status: 200,
+        ok: true,
+        headers: {},
+        text: JSON.stringify({ answers: { kind: { type: 'choice', choice: 'task', probabilities: { task: 1 }, confidence: 1 }, needs_plan: { type: 'noul', noul: 0.1 } } }),
+      },
+    }
+  })
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  await $.prompt.submit({ text: 'fix it', wait: false, origin: { kind: 'composer' } } as never)
+  expect(String(sentStates[0]?.previous_reply)).toContain('Want me to fix that?')
+})

@@ -520,6 +520,18 @@ export const register: Register = (on, options) => {
         if (!doneCheck || e.stop_hook_active) return next(e);
         const m = await currentMode($, options.mode);
         if (m === "off") return next(e);
+        // Waiting on background work (a subagent, a background command) is not
+        // stopping early: that work will wake the session when it finishes.
+        const waitingOn = e.background_tasks?.length ?? 0;
+        if (waitingOn > 0) {
+            await record($, {
+                kind: "done",
+                applied: false,
+                text: `skipped: waiting on ${waitingOn} background task(s)`,
+                data: { skipped: "background", continued: false },
+            });
+            return next(e);
+        }
 
         const ctx = await readTurn($);
         if (!ctx) return next(e);
