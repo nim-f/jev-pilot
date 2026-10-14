@@ -54,7 +54,11 @@ export function quotedTerms(text: string): string[] {
 // `.output` file is its whole transcript and floods the context), system temp
 // dirs, and Claude's own config tree.
 const UNSAFE_PATH = /(^|\/)(tmp|private\/tmp|private\/var\/folders|var\/folders)\/|\/\.claude\/|\/tasks\/[^/]+\.output$|\.output$|\.jsonl$/
-export const isSafeToOffer = (file: string) => !UNSAFE_PATH.test(file)
+// Inside the project only transcripts are refused, so a project that lives in
+// a temp dir (a scratch copy, a benchmark) can still be read.
+const TRANSCRIPT = /\/tasks\/[^/]+\.output$|\.output$|\.jsonl$/
+export const isSafeToOffer = (file: string, cwd?: string) =>
+  cwd && file.startsWith(`${cwd}/`) ? !TRANSCRIPT.test(file) : !UNSAFE_PATH.test(file)
 
 const absolute = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd}/${p.replace(/^\.\//, '')}`)
 
@@ -93,7 +97,7 @@ export async function buildCandidates(
     if (reads >= MAX_READS) break
     if (p.startsWith('~')) continue
     const file = absolute(cwd, p)
-    if (alreadyRead.has(file) || !isSafeToOffer(file)) continue
+    if (alreadyRead.has(file) || !isSafeToOffer(file, cwd)) continue
     const stat = await $.fs.stat(file).catch(() => undefined)
     if (stat?.kind !== 'file' || stat.size > 2_000_000) continue
     out.push({ key: `read ${p}`, description: `Read the file ${p}`, tool: 'Read', input: { file_path: file } })
@@ -107,8 +111,10 @@ export async function buildCandidates(
 
   // Read-only git commands.
   if (await has('.git')) {
-    out.push(bash('git status', 'Show which files are changed, staged or untracked'))
-    out.push(bash('git diff', 'Show the unstaged changes'))
+    // One "what changed" option: status and diff --stat as two options split
+    // Jev's probability (0.75/0.24 live); merged it reaches 0.93.
+    out.push(bash('git status --short && git diff --stat', 'Show what changed: which files are modified, staged or untracked, with a per-file count of changed lines'))
+    out.push(bash('git diff', 'Show the full line-by-line diff of unstaged changes'))
     out.push(bash('git log --oneline -n 15', 'Show the 15 most recent commits'))
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "jev-pilot",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Lets TypeSafe Jev take routine steps, route effort, gate risky calls and check that work is done.",
   "userConfig": {
     "mode": {
@@ -107,6 +107,12 @@
       "type": "boolean",
       "title": "Guide compaction",
       "description": "Before a compaction, tell the summarizer which earlier tool results to keep in detail.",
+      "default": true
+    },
+    "takeOnlyForBypass": {
+      "type": "boolean",
+      "title": "Take steps only for whole-turn answers",
+      "description": "Jev takes a step only when the whole prompt is one read-only action it can answer without Claude. Off: Jev may also take routine steps inside longer turns (measured to add turns without saving cost).",
       "default": true
     }
   }

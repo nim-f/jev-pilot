@@ -17,8 +17,9 @@ export async function readTurn($: EngineInterface, agentId?: string): Promise<Tu
   return splitTurn(messages)
 }
 
-// Rows the person didn't type as a request: `!` shell runs and slash-command output.
-const TRANSCRIPT_ONLY = /^\s*<(bash-input|bash-stdout|bash-stderr|local-command-stdout|local-command-caveat|command-name|command-message)>/
+// Rows the person didn't type as a request: `!` shell runs, slash-command output,
+// and the engine's notices (background task results, reminders).
+const TRANSCRIPT_ONLY = /^\s*<(bash-input|bash-stdout|bash-stderr|local-command-stdout|local-command-caveat|command-name|command-message|system-reminder|task-notification)>/
 
 /** The last user message that carries text and no tool results is the request. */
 export function splitTurn(messages: readonly SessionMessage[]): TurnContext | undefined {

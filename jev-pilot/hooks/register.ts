@@ -78,6 +78,9 @@ export const register: Register = (on, options) => {
             : 0.85;
     const subagents = options.subagents !== false;
     const bypass = options.bypass !== false;
+    // Benchmark (2026-10-14): taking steps inside multi-step coding turns only
+    // added turns (+6, +3% cost); taking pays off when the whole turn is bypassed.
+    const takeOnlyForBypass = options.takeOnlyForBypass !== false;
     const SINGLE_ACTION = 0.8;
     const threshold = (key: string, fallback: number) =>
         typeof options[key] === "number" ? (options[key] as number) : fallback;
@@ -258,7 +261,11 @@ export const register: Register = (on, options) => {
 
         const questions: Record<string, Question> = {};
         let candidates: Candidate[] = [];
-        if (takeSteps && turn.taken < MAX_TAKES_PER_TURN) {
+        if (
+            takeSteps &&
+            turn.taken < MAX_TAKES_PER_TURN &&
+            (!takeOnlyForBypass || (bypass && e.index === 0 && !e.agentId))
+        ) {
             candidates = (
                 await buildCandidates($, ctx.request, ctx.steps, calls, e.index)
             ).filter(
@@ -318,7 +325,11 @@ export const register: Register = (on, options) => {
 
         const answer = choice(r.answers, "next_action");
         const best = bestAction(answer);
-        const pick = pickCandidate(answer, candidates, takeThreshold);
+        const singleAction = noul(r.answers, "single_action") ?? 0;
+        const pick =
+            takeOnlyForBypass && singleAction < SINGLE_ACTION
+                ? undefined
+                : pickCandidate(answer, candidates, takeThreshold);
         if (answer) {
             const p = answer.probabilities[answer.choice] ?? 0;
             await record($, {
@@ -345,7 +356,7 @@ export const register: Register = (on, options) => {
             turn.taken += 1;
             const id = `toolu_jev_${crypto.randomUUID().replace(/-/g, "")}`;
             ownCalls.add(id);
-            if ((noul(r.answers, "single_action") ?? 0) >= SINGLE_ACTION) {
+            if (singleAction >= SINGLE_ACTION) {
                 turn.bypassId = id;
                 turn.bypassAction = pick.key;
             }

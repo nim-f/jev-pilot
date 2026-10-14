@@ -42,3 +42,18 @@ test('temp, task-output and Claude config paths are never offered for reading', 
   expect(isSafeToOffer('/Users/nimf/.claude/settings.json')).toBe(false)
   expect(isSafeToOffer('/Users/nimf/Work/jev-demo/todo-app/todo.js')).toBe(true)
 })
+
+test('a project inside a temp dir can still be read; its transcripts cannot', () => {
+  const cwd = '/private/tmp/claude-503/x/scratchpad/ab2/routine-with-1'
+  expect(isSafeToOffer(`${cwd}/todo.js`, cwd)).toBe(true)
+  expect(isSafeToOffer(`${cwd}/tasks/a1.output`, cwd)).toBe(false)
+  expect(isSafeToOffer('/private/tmp/other/notes.txt', cwd)).toBe(false)
+})
+
+test('task notifications and reminders are not taken as the request', () => {
+  const turn = splitTurn([
+    { role: 'user', text: 'run the tests', toolUses: [] },
+    { role: 'user', text: '<task-notification>\n<summary>Background command "Run the benchmark" completed</summary>', toolUses: [] },
+  ])
+  expect(turn?.request).toBe('run the tests')
+})

@@ -56,7 +56,7 @@ function claudeBeneath(on: On, seen: unknown[]) {
   })
 }
 
-test('Jev takes a confident Read step without asking Claude', async ($, on) => {
+test('Jev takes a confident Read step without asking Claude', { options: { takeOnlyForBypass: false } }, async ($, on) => {
   const seen: unknown[] = []
   setup(on, {
     messages: [user('what does src/app.ts export?')],
@@ -169,7 +169,7 @@ test('The done check sends Claude back once when work is unfinished', async ($, 
 // Jev's own calls skip auto mode's classifier: the mod approves them itself,
 // but a settings deny rule beneath still wins.
 for (const [beneath, expected] of [['ask', 'allow'], ['deny', 'deny']] as const) {
-  test(`A call Jev made itself is approved over "${beneath}" → ${expected}`, async ($, on) => {
+  test(`A call Jev made itself is approved over "${beneath}" → ${expected}`, { options: { takeOnlyForBypass: false } }, async ($, on) => {
     setup(on, {
       messages: [user('what does src/app.ts export?')],
       jev: () => ({
@@ -202,7 +202,7 @@ const runJev = async ($: Engine, args: string) =>
       .text ?? '',
   )
 
-test('Shadow mode compares Claude’s call with Jev’s top action and reports agreement', async ($, on) => {
+test('Shadow mode compares Claude’s call with Jev’s top action and reports agreement', { options: { takeOnlyForBypass: false } }, async ($, on) => {
   setup(on, {
     mode: 'shadow',
     messages: [user('what does src/app.ts export?')],
@@ -246,7 +246,7 @@ test('Passes are logged too: a "claude" pick, an unchanged route, an allowed com
   expect(report).toContain('| Gate | 1 calls | 1 allow · 0 ask · 0 deny |')
 })
 
-test('Jev can pick a skill on the first step of a turn', async ($, on) => {
+test('Jev can pick a skill on the first step of a turn', { options: { takeOnlyForBypass: false } }, async ($, on) => {
   setup(on, {
     messages: [user('write the release notes for this version')],
     jev: () => ({
@@ -309,9 +309,14 @@ for (const [single, expectBypass] of [[0.95, true], [0.3, false]] as const) {
     })
     claudeBeneath(on, seen)
 
-    // Step 0: Jev runs the tests itself.
+    // Step 0: Jev runs the tests itself, but only when the whole turn can be bypassed.
     const first = await drain($.turn.step(step))
     const tool = first.chunks.find(c => c.kind === 'tool')
+    if (!expectBypass) {
+      expect(tool).toBeUndefined()
+      expect(seen).toHaveLength(1)
+      return
+    }
     expect(tool).toBeDefined()
     const id = tool && tool.kind === 'tool' ? tool.id : ''
 
@@ -326,14 +331,11 @@ for (const [single, expectBypass] of [[0.95, true], [0.3, false]] as const) {
       expect(asked[0]).toContain('# pass 3')
       const report = await runJev($, 'report')
       expect(report).toContain('| Turns answered without Claude | **1**')
-    } else {
-      expect(seen).toHaveLength(1)
-      expect(asked).toHaveLength(0)
     }
   })
 }
 
-test('Built-in commands are never offered as skills, and a skill that fails is blocklisted', async ($, on) => {
+test('Built-in commands are never offered as skills, and a skill that fails is blocklisted', { options: { takeOnlyForBypass: false } }, async ($, on) => {
   const offered: string[][] = []
   setup(on, {
     messages: [user('what changed?')],
@@ -378,4 +380,22 @@ test('The done check stays quiet while background work is running', async ($, on
   } as never)
   expect(waiting.block).toBeUndefined()
   expect(sent).toHaveLength(0)
+})
+
+test('By default Jev takes no steps inside a longer turn', async ($, on) => {
+  const seen: unknown[] = []
+  setup(on, {
+    messages: [user('add a priority field, then run the tests')],
+    packageJson: { scripts: { test: 'node --test' } },
+    jev: () => ({
+      next_action: { type: 'choice', choice: 'run npm test', probabilities: { 'run npm test': 0.97, claude: 0.03 }, confidence: 0.95 },
+      difficulty: easy,
+      single_action: { type: 'noul', noul: 0.95 },
+    }),
+  })
+  claudeBeneath(on, seen)
+  // A later step of the turn: Jev is not even asked to pick an action.
+  const { chunks } = await drain($.turn.step({ ...step, index: 4 }))
+  expect(chunks.find(c => c.kind === 'tool')).toBeUndefined()
+  expect(seen).toHaveLength(1)
 })
