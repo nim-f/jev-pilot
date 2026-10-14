@@ -114,6 +114,12 @@
       "title": "Take steps only for whole-turn answers",
       "description": "Jev takes a step only when the whole prompt is one read-only action it can answer without Claude. Off: Jev may also take routine steps inside longer turns (measured to add turns without saving cost).",
       "default": true
+    },
+    "measureSteps": {
+      "type": "boolean",
+      "title": "Measure steps inside a turn",
+      "description": "While Claude takes a step inside a longer turn, ask Jev in parallel which listed action it would take, and log whether it matches. Adds no delay; costs one Jev request per step. Never takes the step.",
+      "default": true
     }
   }
 }

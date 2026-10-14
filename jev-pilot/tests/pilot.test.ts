@@ -338,7 +338,7 @@ for (const [single, expectBypass] of [[0.95, true], [0.3, false]] as const) {
 test('Built-in commands are never offered as skills, and a skill that fails is blocklisted', { options: { takeOnlyForBypass: false } }, async ($, on) => {
   const offered: string[][] = []
   setup(on, {
-    messages: [user('what changed?')],
+    messages: [user('summarize the recent changes')],
     jev: q => {
       const options = Object.keys(((q.next_action as { criteria?: object } | undefined)?.criteria ?? {}))
       offered.push(options)
@@ -384,7 +384,7 @@ test('The done check stays quiet while background work is running', async ($, on
 
 test('By default Jev takes no steps inside a longer turn', async ($, on) => {
   const seen: unknown[] = []
-  setup(on, {
+  const { sent } = setup(on, {
     messages: [user('add a priority field, then run the tests')],
     packageJson: { scripts: { test: 'node --test' } },
     jev: () => ({
@@ -394,8 +394,30 @@ test('By default Jev takes no steps inside a longer turn', async ($, on) => {
     }),
   })
   claudeBeneath(on, seen)
-  // A later step of the turn: Jev is not even asked to pick an action.
+  // A later step of the turn: Jev is only asked in parallel, to measure.
   const { chunks } = await drain($.turn.step({ ...step, index: 4 }))
   expect(chunks.find(c => c.kind === 'tool')).toBeUndefined()
   expect(seen).toHaveLength(1)
+  expect(Object.keys((sent[0] as { questions: object }).questions)).toEqual(['next_action'])
+})
+
+test('Effort lowered at step 0 holds for the later steps of the turn', async ($, on) => {
+  const seen: { effort?: string }[] = []
+  setup(on, { messages: [user('what does this project do?')], jev: () => ({ difficulty: easy }) })
+  claudeBeneath(on, seen as unknown[])
+  await drain($.turn.step(step))
+  await drain($.turn.step({ ...step, index: 1 }))
+  expect(seen.map(s => s.effort)).toEqual(['low', 'low'])
+})
+
+test('Effort routing sees the reply a short follow-up answers', async ($, on) => {
+  const { sent } = setup(on, {
+    messages: [user('add a sync layer'), { role: 'assistant', text: 'Here is the plan: 1. … Want me to build it?', toolUses: [] }, user('yes')],
+    jev: () => ({ difficulty: easy }),
+  })
+  claudeBeneath(on, [])
+  await drain($.turn.step(step))
+  const state = (sent[0] as { state: { request: string; previous_reply?: string } }).state
+  expect(state.request).toBe('yes')
+  expect(state.previous_reply).toBe('Here is the plan: 1. … Want me to build it?')
 })

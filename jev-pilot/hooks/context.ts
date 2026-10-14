@@ -55,4 +55,15 @@ export function summarize(steps: readonly SessionMessage[], limit = 8): StepSumm
   return out.slice(-limit)
 }
 
+/** The end of the assistant's last reply, so short follow-ups are judged in context. */
+export async function previousReply($: EngineInterface): Promise<string | undefined> {
+  const messages = await $.session.messages({}).catch(() => undefined)
+  if (!Array.isArray(messages)) return undefined
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!
+    if (m.role === 'assistant' && m.text.trim()) return m.text.length > 800 ? `…${m.text.slice(-800)}` : m.text
+  }
+  return undefined
+}
+
 export { clip }

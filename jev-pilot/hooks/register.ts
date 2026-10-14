@@ -1,10 +1,10 @@
 import type { EngineInterface, Register } from "claude-code";
 
-import { buildCandidates, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates";
+import { buildCandidates, coversStep, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates";
 import type { Candidate } from "./candidates";
-import { clip, readTurn, summarize, toolCalls } from "./context";
+import { clip, previousReply, readTurn, summarize, toolCalls } from "./context";
 import { askJev, choice, noul, score } from "./jev";
-import type { Question } from "./jev";
+import type { ChoiceAnswer, JevResult, Question } from "./jev";
 import { clearLog, readLog, record, recentDecisions, stats } from "./log";
 import { buildReport } from "./report";
 import { registerView } from "./view";
@@ -57,6 +57,55 @@ function summarizeCalls(
         .join(", ");
 }
 
+/**
+ * Logs Claude's step next to Jev's top action. `agree` means Jev's action
+ * would have replaced Claude's whole step (one call, same command once output
+ * filters and flags are set aside), so taking it saves one Claude request.
+ */
+async function recordCompare(
+    $: EngineInterface,
+    turnId: string,
+    step: number,
+    request: string,
+    answer: ChoiceAnswer,
+    candidates: readonly Candidate[],
+    toolUses: readonly { name: string; input?: unknown }[],
+    measured: boolean,
+) {
+    const best = bestAction(answer);
+    const claudeCalls = toolUses.map((u) => ({
+        tool: u.name,
+        input: (u.input ?? {}) as Record<string, unknown>,
+    }));
+    const bestCandidate = candidates.find((c) => c.key === best?.key);
+    const agree = Boolean(bestCandidate && coversStep(claudeCalls, bestCandidate));
+    const claudeUsedCandidate = claudeCalls.some((c) =>
+        candidates.some((k) => coversStep([c], k)),
+    );
+    const claudeSummary = summarizeCalls(claudeCalls);
+    await record($, {
+        kind: "compare",
+        applied: false,
+        text: `Claude: ${claudeSummary} · Jev best ${best?.key ?? "none"}${agree ? " ✓" : ""}`,
+        turnId,
+        data: {
+            request: clip(request, 120),
+            step,
+            measured,
+            claudeSummary,
+            pick: answer.choice,
+            best: best?.key,
+            bestP: best?.p,
+            claude: claudeCalls.map((c) => c.tool),
+            claudeCalls: claudeCalls.map((c) =>
+                clip(String(c.input.command ?? c.input.file_path ?? c.input.skill ?? c.input.query ?? ""), 200),
+            ),
+            agree,
+            claudeUsedCandidate,
+        },
+    });
+}
+
 async function blockSkill($: EngineInterface, name: string) {
     const list = ((await $.store.get(SKILL_BLOCKLIST_KEY)) as string[] | undefined) ?? [];
     if (!list.includes(name))
@@ -81,6 +130,7 @@ export const register: Register = (on, options) => {
     // Benchmark (2026-10-14): taking steps inside multi-step coding turns only
     // added turns (+6, +3% cost); taking pays off when the whole turn is bypassed.
     const takeOnlyForBypass = options.takeOnlyForBypass !== false;
+    const measureSteps = options.measureSteps !== false;
     const SINGLE_ACTION = 0.8;
     const threshold = (key: string, fallback: number) =>
         typeof options[key] === "number" ? (options[key] as number) : fallback;
@@ -126,6 +176,28 @@ export const register: Register = (on, options) => {
                     takeThreshold,
                     await currentMode($, options.mode),
                 ),
+            };
+        }
+        if (arg === "candidates") {
+            // Exactly what Jev is offered at step 0 for the last prompt.
+            const ctx = await readTurn($);
+            const calls = ctx ? toolCalls(ctx.steps) : [];
+            const list = await buildCandidates($, ctx?.request ?? "", ctx?.steps ?? [], calls, 0);
+            const kind = (c: Candidate) =>
+                c.tool === "Skill" ? "Skills" : c.tool === "ToolSearch" ? "Tools to load" : c.tool === "Read" ? "File reads" : "Commands";
+            const groups = new Map<string, Candidate[]>();
+            for (const c of list) groups.set(kind(c), [...(groups.get(kind(c)) ?? []), c]);
+            const sections = [...groups].map(
+                ([name, items]) =>
+                    `### ${name} (${items.length})\n\n| Option | Description |\n|---|---|\n` +
+                    items.map((c) => `| \`${c.key.replace(/\|/g, "\\|")}\` | ${c.description.replace(/\|/g, "\\|").replace(/\s+/g, " ")} |`).join("\n"),
+            );
+            return {
+                text: [
+                    `## Jev candidates: ${list.length + 1} options`,
+                    `_For the last prompt: "${clip(ctx?.request ?? "(none)", 60)}". Plus \`claude\`: leave the step to Claude._`,
+                    ...sections,
+                ].join("\n\n"),
             };
         }
         if (arg === "clear") {
@@ -279,10 +351,48 @@ export const register: Register = (on, options) => {
             questions.difficulty = difficultyQuestion;
         if (bypass && e.index === 0 && questions.next_action && !e.agentId)
             questions.single_action = singleActionQuestion;
-        if (!Object.keys(questions).length) return yield* next(e);
+        // Effort lowered at step 0 holds for every step of the turn.
+        const routed = (step: typeof e) => {
+            if (m !== "active" || !turn.route) return step;
+            const effort = lowerEffort(step.effort, turn.route.effort);
+            const model = lowerModel(step.model, turn.route.model);
+            return effort || model
+                ? { ...step, ...(effort ? { effort } : {}), ...(model ? { model } : {}) }
+                : step;
+        };
 
+        if (!Object.keys(questions).length) {
+            // Inside a longer turn Jev doesn't take steps, but is asked in
+            // parallel with Claude which action it would take, so the take
+            // threshold can be measured without adding a delay.
+            let measure: Promise<JevResult> | undefined;
+            let measured: Candidate[] = [];
+            if (measureSteps && takeSteps && e.index > 0 && !e.agentId) {
+                measured = (
+                    await buildCandidates($, ctx.request, ctx.steps, calls, e.index)
+                ).filter((c) => !(last && sameCall(last, { tool: c.tool, input: c.input })));
+                if (measured.length)
+                    measure = askJev(
+                        $,
+                        { request: clip(ctx.request, 4000), recent: summarize(ctx.steps), cwd: await $.session.cwd() },
+                        { next_action: nextActionQuestion(measured) },
+                    );
+            }
+            const result = yield* next(routed(e));
+            const r = await measure;
+            const answer = r?.ok ? choice(r.answers, "next_action") : undefined;
+            if (answer)
+                await recordCompare($, e.turnId, e.index, ctx.request, answer, measured, result.toolUses, true);
+            return result;
+        }
+
+        // A short follow-up ("yes", "do it") is only rated with confidence
+        // when Jev sees what it answers: 0.0–0.2 without, 0.5–0.8 with.
+        const previous =
+            e.index === 0 && !e.agentId ? await previousReply($) : undefined;
         const state = {
             request: clip(ctx.request, 4000),
+            ...(previous ? { previous_reply: previous } : {}),
             recent: summarize(ctx.steps),
             cwd: await $.session.cwd(),
         };
@@ -373,58 +483,11 @@ export const register: Register = (on, options) => {
             };
         }
 
-        let request = e;
-        if (m === "active" && turn.route) {
-            const effort = lowerEffort(e.effort, turn.route.effort);
-            const model = lowerModel(e.model, turn.route.model);
-            if (effort || model)
-                request = {
-                    ...e,
-                    ...(effort ? { effort } : {}),
-                    ...(model ? { model } : {}),
-                };
-        }
-        const result = yield* next(request);
+        const result = yield* next(routed(e));
 
         // Compare Claude's own next call with Jev's top action.
-        if (answer) {
-            const claudeCalls = result.toolUses.map((u) => ({
-                tool: u.name,
-                input: (u.input ?? {}) as Record<string, unknown>,
-            }));
-            const bestCandidate = candidates.find((c) => c.key === best?.key);
-            const first = claudeCalls[0];
-            const agree = Boolean(
-                bestCandidate &&
-                    first &&
-                    sameCall(first, {
-                        tool: bestCandidate.tool,
-                        input: bestCandidate.input,
-                    }),
-            );
-            const claudeUsedCandidate = claudeCalls.some((c) =>
-                candidates.some((k) =>
-                    sameCall(c, { tool: k.tool, input: k.input }),
-                ),
-            );
-            const claudeSummary = summarizeCalls(claudeCalls);
-            await record($, {
-                kind: "compare",
-                applied: false,
-                text: `Claude: ${claudeSummary} · Jev best ${best?.key ?? "none"}${agree ? " ✓" : ""}`,
-                turnId: e.turnId,
-                data: {
-                    request: clip(ctx.request, 120),
-                    claudeSummary,
-                    pick: answer.choice,
-                    best: best?.key,
-                    bestP: best?.p,
-                    claude: claudeCalls.map((c) => c.tool),
-                    agree,
-                    claudeUsedCandidate,
-                },
-            });
-        }
+        if (answer)
+            await recordCompare($, e.turnId, e.index, ctx.request, answer, candidates, result.toolUses, false);
         return result;
     });
 

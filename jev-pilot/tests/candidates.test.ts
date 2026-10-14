@@ -57,3 +57,45 @@ test('task notifications and reminders are not taken as the request', () => {
   ])
   expect(turn?.request).toBe('run the tests')
 })
+
+import { dedupeSkills, relevant } from '../hooks/candidates'
+
+const SKILLS = [
+  { name: 'youtube-metadata', description: 'Generate optimized YouTube video metadata including titles, tags, and descriptions' },
+  { name: 'youtube-plugin:youtube-metadata', description: 'Generate optimized YouTube video metadata including titles, tags, and descriptions' },
+  { name: 'anthropic-skills:pdf', description: 'Use this skill whenever the user wants to do anything with PDF files' },
+  { name: 'pdf', description: 'Use this skill whenever the user wants to do anything with PDF files' },
+  { name: 'i-have-adhd:i-have-adhd', description: 'Shape output for a reader with ADHD' },
+  { name: 'chrome-browser', description: 'Read this skill before the first step that uses Claude in Chrome, the browser extension' },
+]
+
+test('a skill listed under two names is offered once, unprefixed', () => {
+  expect(dedupeSkills(SKILLS).map(s => s.name)).toEqual(['youtube-metadata', 'pdf', 'i-have-adhd:i-have-adhd', 'chrome-browser'])
+})
+
+test('only skills related to the prompt are offered', () => {
+  const skills = dedupeSkills(SKILLS)
+  expect(relevant('can you show me the full list', skills)).toEqual([])
+  expect(relevant('run the tests', skills)).toEqual([])
+  expect(relevant('write youtube titles for my video', skills).map(s => s.name)).toEqual(['youtube-metadata'])
+  expect(relevant('merge these two pdfs', skills).map(s => s.name)).toEqual(['pdf'])
+  expect(relevant('open the page in chrome', skills).map(s => s.name)).toEqual(['chrome-browser'])
+})
+
+import { commandKey, coversStep } from '../hooks/candidates'
+
+test('commands compare by what they run, not how the output is filtered', () => {
+  expect(commandKey("npm test 2>&1 | grep -E '^(ok|not ok)'")).toBe(commandKey('npm test'))
+  expect(commandKey('cd /x/todo-app && npm test')).toBe('npm test')
+  expect(commandKey('git status; git diff --stat | head -40')).toBe(commandKey('git status --short && git diff --stat'))
+  expect(commandKey('git log --oneline -5')).toBe(commandKey('git log --oneline -n 15'))
+  expect(commandKey('npm run lint')).not.toBe(commandKey('npm run build'))
+  expect(commandKey('git diff')).not.toBe(commandKey('git status --short && git diff --stat'))
+})
+
+test('a step matches only when Jev’s one action would replace all of it', () => {
+  const jev = { tool: 'Bash', input: { command: 'npm test' } }
+  expect(coversStep([{ tool: 'Bash', input: { command: 'npm test 2>&1 | tail -20' } }], jev)).toBe(true)
+  expect(coversStep([{ tool: 'Bash', input: { command: 'ls && cat package.json && npm test' } }], jev)).toBe(false)
+  expect(coversStep([{ tool: 'Bash', input: { command: 'npm test' } }, { tool: 'Read', input: { file_path: '/a' } }], jev)).toBe(false)
+})

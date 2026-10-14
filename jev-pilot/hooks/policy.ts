@@ -42,7 +42,8 @@ export const DIFFICULTY_LEVELS = [
 
 export const difficultyQuestion: Question = {
   type: 'score',
-  instructions: 'How much reasoning does an AI coding assistant need to fully handle the user request in `request`?',
+  instructions:
+    "How much reasoning does an AI coding assistant need to fully handle the user request in `request`? When `previous_reply` is present, `request` answers the assistant's previous reply: judge a short follow-up like 'yes' or 'do it' by the work it approves or asks about there.",
   criteria: DIFFICULTY_LEVELS,
 }
 

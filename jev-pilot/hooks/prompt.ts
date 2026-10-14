@@ -1,7 +1,7 @@
 import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { BUILTIN_COMMANDS, SKILL_BLOCKLIST_KEY } from './candidates'
-import { clip } from './context'
+import { clip, previousReply } from './context'
 import { askJev, choice, noul } from './jev'
 import type { Question } from './jev'
 import { record } from './log'
@@ -18,17 +18,6 @@ const KIND_LEVELS: Record<string, string> = {
 }
 const SKILL_HINT = 0.6
 const PLAN_HINT = 0.85
-
-/** The end of the assistant's last reply, so short follow-ups are judged in context. */
-async function previousReply($: EngineInterface): Promise<string | undefined> {
-  const messages = await $.session.messages({}).catch(() => undefined)
-  if (!Array.isArray(messages)) return undefined
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]!
-    if (m.role === 'assistant' && m.text.trim()) return m.text.length > 800 ? `…${m.text.slice(-800)}` : m.text
-  }
-  return undefined
-}
 
 async function skillOptions($: EngineInterface) {
   const commands = await $.command.list().catch(() => [])

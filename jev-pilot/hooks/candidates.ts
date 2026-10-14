@@ -71,6 +71,38 @@ export function sameCall(a: { tool: string; input: Record<string, unknown> }, b:
   return false
 }
 
+/**
+ * What a shell command does, for comparison: each `&&`/`;`/newline part, cut
+ * at its first pipe (`| tail`, `| grep` only filter the output), without
+ * redirections, `cd` and `echo`, reduced to its command words (flags, paths
+ * and numbers dropped). `git status; git diff --stat 2>&1 | head` and
+ * `git status --short && git diff --stat` both give `git diff|git status`.
+ */
+export function commandKey(command: string): string {
+  const parts = new Set<string>()
+  for (const raw of command.split(/&&|\|\||;|\n/)) {
+    const seg = raw.split(/(?<!\|)\|(?!\|)/)[0]!.replace(/\d?>&\d|\d?>\s*\/dev\/null/g, '').trim()
+    if (!seg || /^(cd|echo|printf|set|export)\b/.test(seg)) continue
+    const tokens = seg.split(/\s+/)
+    const words = [tokens[0]!, ...tokens.slice(1).filter(t => /^[a-z][\w:-]*$/.test(t))]
+    parts.add(words.slice(0, words[1] === 'run' || words[1] === 'exec' ? 3 : 2).join(' '))
+  }
+  return [...parts].sort().join('|')
+}
+
+/** Same action: identical, or for shell commands the same `commandKey`. */
+export function equivalentCall(a: { tool: string; input: Record<string, unknown> }, b: { tool: string; input: Record<string, unknown> }) {
+  if (sameCall(a, b)) return true
+  if (a.tool !== 'Bash' || b.tool !== 'Bash') return false
+  const ka = commandKey(String(a.input.command ?? ''))
+  return ka !== '' && ka === commandKey(String(b.input.command ?? ''))
+}
+
+/** Jev's action would have replaced Claude's whole step: one call, equivalent. */
+export function coversStep(claude: readonly { tool: string; input: Record<string, unknown> }[], jev: { tool: string; input: Record<string, unknown> }) {
+  return claude.length === 1 && equivalentCall(claude[0]!, jev)
+}
+
 const bash = (command: string, description: string): Candidate => ({
   key: `run ${command}`,
   description,
@@ -154,23 +186,84 @@ export async function buildCandidates(
   if (stepIndex === 0) {
     const commands = await $.command.list().catch(() => [])
     const blocked = new Set(((await $.store.get(SKILL_BLOCKLIST_KEY).catch(() => undefined)) as string[] | undefined) ?? [])
-    const offered = commands.filter(
-      c => (c.source === 'plugin' || c.source === 'user') && c.name !== 'jev' && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name),
+    const allSkills = dedupeSkills(
+      commands.filter(c => (c.source === 'plugin' || c.source === 'user') && c.name !== 'jev' && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name)),
     )
-    for (const c of offered) {
+    // Every skill when the prompt is about skills; otherwise only related ones.
+    const skills = /\bskills?\b/i.test(request) ? allSkills : relevant(request, allSkills)
+    for (const c of skills) {
       out.push({ key: `skill ${c.name}`, description: `Use the skill or command "${c.name}": ${clipScript(c.description)}`, tool: 'Skill', input: { skill: c.name } })
     }
     const loaded = new Set(calls.filter(c => c.tool === 'ToolSearch').map(c => String(c.input.query)))
-    const tools = await $.tool.list().catch(() => [])
-    for (const t of tools.filter(t => t.mcp)) {
-      const query = `select:${t.name}`
-      if (loaded.has(query)) continue
-      out.push({ key: `load ${t.name}`, description: `Load the tool ${t.name}: ${clipScript(t.description)}`, tool: 'ToolSearch', input: { query, max_results: 1 } })
+    const tools = (await $.tool.list().catch(() => [])).filter(t => t.mcp && !AUTH_TOOL.test(t.name) && !loaded.has(`select:${t.name}`))
+    for (const t of relevant(request, tools)) {
+      out.push({ key: `load ${t.name}`, description: `Load the tool ${t.name}: ${clipScript(t.description)}`, tool: 'ToolSearch', input: { query: `select:${t.name}`, max_results: 1 } })
     }
   }
 
   // Jev's choice API takes at most 255 options, one of them "claude".
   return out.slice(0, 254)
+}
+
+// MCP sign-in tools are never the next step of a coding turn.
+const AUTH_TOOL = /__(authenticate|complete_authentication)$/
+const MAX_RELATED = 8
+// Words too common in prompts and skill descriptions to show a relation.
+const STOPWORDS = new Set(
+  ('the and for with this that these those when what which where how why who any all can could would should will ' +
+    'you your use used using user users from into onto about over than then them they its it\'s are was were has have ' +
+    'had not but also only just some more most very like want need make made create new get set show see one two ' +
+    'file files read run runs tool tools skill skills command commands claude code project before after first step ' +
+    'please let lets now ok okay yes here there out other each every such via per our we me my is be to of in on at ' +
+    'an a or do does did done if so as by up no').split(' '),
+)
+
+/** Lowercase content words, light-stemmed so changes/changed/change match. */
+export function words(text: string): Set<string> {
+  const out = new Set<string>()
+  for (const w of text.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (w.length < 3 || STOPWORDS.has(w) || /^\d+$/.test(w)) continue
+    const stem = w.replace(/(ing|ed|es|e|s)$/, '')
+    out.add(stem.length >= 3 && !w.endsWith('ss') ? stem : w)
+  }
+  return out
+}
+
+/**
+ * Skills and tools whose name or description shares words with the prompt,
+ * best first. A name word counts double; one description word alone is not
+ * enough, so generic overlaps ("document", "video") need a second word.
+ */
+export function relevant<T extends { name: string; description: string }>(prompt: string, items: readonly T[]): T[] {
+  const want = words(prompt)
+  if (!want.size) return []
+  const scored = items.map(item => {
+    const name = words(item.name.replace(/^mcp__/, '').replace(/[_:]+/g, ' '))
+    const desc = words(item.description)
+    let score = 0
+    for (const w of want) score += name.has(w) ? 2 : desc.has(w) ? 1 : 0
+    return { item, score }
+  })
+  return scored
+    .filter(s => s.score >= 2)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_RELATED)
+    .map(s => s.item)
+}
+
+/**
+ * One entry per skill: `anthropic-skills:pdf` and `pdf`, or `youtube-metadata`
+ * and `youtube-plugin:youtube-metadata`, are the same skill listed twice. The
+ * unprefixed name wins.
+ */
+export function dedupeSkills<T extends { name: string }>(skills: readonly T[]): T[] {
+  const base = (n: string) => n.slice(n.lastIndexOf(':') + 1)
+  const byBase = new Map<string, T>()
+  for (const s of skills) {
+    const kept = byBase.get(base(s.name))
+    if (!kept || (kept.name.includes(':') && !s.name.includes(':'))) byBase.set(base(s.name), s)
+  }
+  return skills.filter(s => byBase.get(base(s.name)) === s)
 }
 
 const clipScript = (s: string) => (s.length > 80 ? `${s.slice(0, 80)}…` : s)
