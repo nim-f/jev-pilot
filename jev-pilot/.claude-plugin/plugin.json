@@ -1,0 +1,95 @@
+{
+  "name": "jev-pilot",
+  "version": "0.3.0",
+  "description": "Lets TypeSafe Jev take routine steps, route effort, gate risky calls and check that work is done.",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "active applies Jev's decisions, shadow only logs them, off disables the mod.",
+      "options": [
+        "active",
+        "shadow",
+        "off"
+      ],
+      "default": "active"
+    },
+    "routing": {
+      "type": "string",
+      "title": "Routing",
+      "description": "Per-turn routing by difficulty: lower effort, also switch to a cheaper model, or off.",
+      "options": [
+        "effort",
+        "model",
+        "off"
+      ],
+      "default": "effort"
+    },
+    "takeSteps": {
+      "type": "boolean",
+      "title": "Take steps",
+      "description": "Let Jev make routine tool calls (Read, git, project scripts) instead of Claude.",
+      "default": true
+    },
+    "gate": {
+      "type": "boolean",
+      "title": "Gate",
+      "description": "Let Jev tighten permissions on risky or out-of-scope Bash and edits.",
+      "default": true
+    },
+    "doneCheck": {
+      "type": "boolean",
+      "title": "Done check",
+      "description": "Let Jev send Claude back once when a request looks unfinished.",
+      "default": true
+    },
+    "takeThreshold": {
+      "type": "number",
+      "title": "Take threshold",
+      "description": "Minimum probability for Jev to take a step itself.",
+      "default": 0.85
+    },
+    "subagents": {
+      "type": "boolean",
+      "title": "Subagents",
+      "description": "Also take steps and route effort inside subagent loops.",
+      "default": true
+    },
+    "dangerAsk": {
+      "type": "number",
+      "title": "Gate: ask at",
+      "description": "Ask before a Bash command when its probability of being dangerous is at least this.",
+      "default": 0.5
+    },
+    "dangerDeny": {
+      "type": "number",
+      "title": "Gate: deny at",
+      "description": "Deny a dangerous Bash command (this probability or more) when it is also out of scope.",
+      "default": 0.8
+    },
+    "scopeDeny": {
+      "type": "number",
+      "title": "Gate: out of scope below",
+      "description": "A Bash command counts as out of scope below this in-scope probability.",
+      "default": 0.2
+    },
+    "editScope": {
+      "type": "number",
+      "title": "Gate: edit scope below",
+      "description": "Ask before an edit whose in-scope probability is below this.",
+      "default": 0.15
+    },
+    "doneThreshold": {
+      "type": "number",
+      "title": "Done check: unfinished below",
+      "description": "Send Claude back when the probability that the work is finished is below this.",
+      "default": 0.15
+    },
+    "bypass": {
+      "type": "boolean",
+      "title": "Answer simple prompts without Claude",
+      "description": "When a prompt only needs one read-only action Jev takes (run the tests, git status, read a file), a small model reports the result and the main Claude model is skipped.",
+      "default": true
+    }
+  }
+}
