@@ -56,4 +56,3 @@ Every setting (thresholds, routing, gate, done check…) is under `/plugin confi
 | `jev-pilot/` | The plugin: hooks in `hooks/`, tests in `tests/` (`claude plugin test jev-pilot`) |
 | `todo-app/` | The small app the demos and benchmark work on |
 | `bench/` | Opus alone vs Opus + Jev on the same prompts. See [`bench/BENCHMARK.md`](bench/BENCHMARK.md) |
-| `JEV_PLAN.md` | The design plan |
